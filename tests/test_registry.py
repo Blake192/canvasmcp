@@ -106,6 +106,11 @@ REQUIRED_ARGUMENTS = {
     "get_inbox_conversation": ["conversation_id"],
     "list_course_quizzes": ["course_id"],
     "get_quiz_results": ["course_id", "quiz_id"],
+    "list_planner_items": [],
+    "create_todo_note": ["title"],
+    "update_todo_note": ["note_id"],
+    "delete_todo_note": ["note_id"],
+    "set_todo_item_state": ["plannable_id", "plannable_type"],
 }
 
 

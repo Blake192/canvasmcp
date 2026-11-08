@@ -11,6 +11,7 @@ from .base import CanvasClientBase
 from .content import CanvasContentMixin
 from .courses import CanvasCoursesMixin
 from .inbox import CanvasInboxMixin
+from .planner import CanvasPlannerMixin
 from .quizzes import CanvasQuizzesMixin
 from .submissions_write import CanvasSubmissionsWriteMixin
 
@@ -22,6 +23,7 @@ class CanvasClient(
     CanvasContentMixin,
     CanvasInboxMixin,
     CanvasQuizzesMixin,
+    CanvasPlannerMixin,
     CanvasClientBase,
 ):
     pass
