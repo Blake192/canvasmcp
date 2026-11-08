@@ -5,10 +5,8 @@ from typing import Any
 from tools.common import (
     DEFAULT_HTML_CHAR_LIMIT,
     canvas_client,
-    clamp,
     invalid_argument,
     looks_like_canvas_id,
-    missing_argument,
     truncate_html,
 )
 
@@ -18,13 +16,11 @@ PREVIEW_CHAR_LIMIT = 300
 
 def list_inbox_conversations(args: dict[str, Any]) -> dict[str, Any]:
     scope = str(args.get("scope") or "inbox").strip().lower()
-    if scope not in INBOX_SCOPES:
-        return invalid_argument(f"scope must be one of: {', '.join(INBOX_SCOPES)}")
     course_id = str(args.get("course_id") or "").strip()
     if course_id and not looks_like_canvas_id(course_id):
         return invalid_argument("course_id must be a Canvas course ID")
 
-    limit = clamp(args.get("limit"), 50)
+    limit = int(args.get("limit", 50))
     conversations = canvas_client().list_conversations(
         scope=None if scope == "inbox" else scope,  # Canvas's default view is the inbox
         course_id=course_id or None,
@@ -36,8 +32,6 @@ def list_inbox_conversations(args: dict[str, Any]) -> dict[str, Any]:
 
 def get_inbox_conversation(args: dict[str, Any]) -> dict[str, Any]:
     conversation_id = str(args.get("conversation_id") or "").strip()
-    if not conversation_id:
-        return missing_argument("conversation_id")
     if not looks_like_canvas_id(conversation_id):
         return invalid_argument("conversation_id must be a Canvas conversation ID")
 
@@ -98,7 +92,7 @@ def _map_message(message: dict[str, Any], names: dict[str, str]) -> dict[str, An
         "body": truncate_html(body),
         "body_truncated": len(body or "") > DEFAULT_HTML_CHAR_LIMIT,
         "generated": bool(message.get("generated", False)),
-        # Names and IDs only: Canvas attachment URLs embed an access key.
+        # Names and IDs only: Canvas attachment and media URLs embed an access key.
         "attachments": [
             {
                 "id": str(attachment.get("id", "")),
@@ -108,4 +102,19 @@ def _map_message(message: dict[str, Any], names: dict[str, str]) -> dict[str, An
             }
             for attachment in message.get("attachments") or []
         ],
+        "media_comment": _map_media_comment(message.get("media_comment")),
+        "forwarded_messages": [
+            _map_message(forwarded, names) for forwarded in message.get("forwarded_messages") or []
+        ],
+    }
+
+
+def _map_media_comment(media: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not media:
+        return None
+    return {
+        "media_id": media.get("media_id"),
+        "media_type": media.get("media_type"),
+        "display_name": media.get("display_name"),
+        "content_type": media.get("content-type") or media.get("content_type"),
     }

@@ -26,6 +26,18 @@ _CANVAS_EXCEPTION_STATUS: tuple[tuple[type[CanvasException], int], ...] = (
 )
 
 
+class _CanvasDictItem:
+    def __init__(self, _: Any, attributes: dict[str, Any]) -> None:
+        self.__dict__.update(attributes)
+
+
+def _canvas_exception_for_status(status_code: int) -> CanvasException:
+    for exc_type, code in _CANVAS_EXCEPTION_STATUS:
+        if code == status_code:
+            return exc_type(f"status code {status_code}")
+    return CanvasException(f"Encountered an error: status code {status_code}")
+
+
 def _status_code_for_canvas_exception(exc: CanvasException) -> int | None:
     for exc_type, status_code in _CANVAS_EXCEPTION_STATUS:
         if isinstance(exc, exc_type):
@@ -68,17 +80,14 @@ class CanvasClientBase:
                 cookies=(session_cookie, csrf_token),
             )
 
-    def _run_with_canvas(self, call: Callable[[Canvas], Any]) -> Any:
-        canvas = Canvas(self._root_url, "")
-        self._inject_session_cookies(canvas)
-        try:
-            return call(canvas)
-        finally:
-            self._close_canvas(canvas)
-
     def _call_canvas(self, action: Callable[[Canvas], Any], context: str) -> Any:
         try:
-            return self._run_with_canvas(action)
+            canvas = Canvas(self._root_url, "")
+            try:
+                self._inject_session_cookies(canvas)
+                return action(canvas)
+            finally:
+                self._close_canvas(canvas)
         except (CanvasException, TypeError, ValueError) as exc:
             status_code = (
                 _status_code_for_canvas_exception(exc)
@@ -89,6 +98,17 @@ class CanvasClientBase:
                 f"Canvas request failed: {context}. Response: {exc}",
                 status_code=status_code,
             ) from exc
+
+    def _web_get(self, canvas: Canvas, url: str, **kwargs: Any) -> Any:
+        """GET a Canvas web URL (or root-relative path) with the session's cookies."""
+        if url.startswith("/"):
+            url = f"{self._root_url}{url}"
+        requester = getattr(canvas, "_Canvas__requester")
+        response = requester._session.get(url, timeout=20, **kwargs)
+        if response.status_code >= 400:
+            response.close()
+            raise _canvas_exception_for_status(response.status_code)
+        return response
 
     @staticmethod
     def _item_to_dict(item: Any) -> dict[str, Any]:
@@ -111,11 +131,6 @@ class CanvasClientBase:
             if len(out) >= safe_limit:
                 break
         return out
-
-    def _paginate_list(
-        self, items: Iterable[Any], *, limit: int = 100
-    ) -> list[dict[str, Any]]:
-        return self._take_limit(items, limit)
 
     @staticmethod
     def _custom_paginated_call(

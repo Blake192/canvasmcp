@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
-import tempfile
 from typing import Any
 from urllib.parse import quote
 
@@ -15,20 +13,15 @@ from mcp.types import (
 
 from tools.common import (
     canvas_client,
-    clamp,
     download_dir,
     download_file_path,
-    id_aliases,
-    missing_argument,
 )
 
 
 def list_course_files(args: dict[str, Any]) -> dict[str, Any]:
     course_id = str(args.get("course_id", "")).strip()
-    if not course_id:
-        return missing_argument("course_id")
 
-    limit = clamp(args.get("limit"), 100)
+    limit = int(args.get("limit", 100))
     files = canvas_client().list_files(
         course_id=course_id,
         search=str(args.get("search")) if args.get("search") else None,
@@ -39,7 +32,6 @@ def list_course_files(args: dict[str, Any]) -> dict[str, Any]:
     items = [
         {
             "id": str(file.get("id", "")),
-            "id_aliases": id_aliases(str(file.get("id", ""))),
             "display_name": file.get("display_name"),
             "filename": file.get("filename"),
             "content_type": file.get("content_type"),
@@ -58,10 +50,6 @@ def list_course_files(args: dict[str, Any]) -> dict[str, Any]:
 def download_course_file(args: dict[str, Any]) -> dict[str, Any]:
     course_id = str(args.get("course_id", "")).strip()
     file_id = str(args.get("file_id", "")).strip()
-    if not course_id:
-        return missing_argument("course_id")
-    if not file_id:
-        return missing_argument("file_id")
 
     force_refresh = bool(args.get("force_refresh", False))
     root = download_dir()
@@ -121,12 +109,14 @@ def read_course_file(
     except (TypeError, ValueError):
         max_size_mb = 25
     max_bytes = max_size_mb * 1024 * 1024
-    client = canvas_client()
-    file_info = client.get_file(course_id=course_id, file_id=file_id)
-    size = file_info.get("size")
-    if isinstance(size, int) and size > max_bytes:
+    file_info, data = canvas_client().read_file_bytes(
+        course_id=course_id, file_id=file_id, max_bytes=max_bytes
+    )
+    if data is None:
+        size = file_info.get("size")
+        size_text = f"{size} bytes, " if isinstance(size, int) and size > max_bytes else ""
         raise ValueError(
-            f"File is {size} bytes, above the {max_size_mb} MB inline limit. "
+            f"File is {size_text}above the {max_size_mb} MB inline limit. "
             "Use download_course_file instead."
         )
 
@@ -134,22 +124,6 @@ def read_course_file(
         file_info.get("display_name") or file_info.get("filename") or f"file_{file_id}"
     )
     content_type = str(file_info.get("content-type") or file_info.get("content_type") or "application/octet-stream")
-    with tempfile.TemporaryDirectory(prefix="canvasmcp-inline-") as temp_dir:
-        path = Path(temp_dir) / "canvas-file"
-        client.download_file(
-            course_id=course_id,
-            file_id=file_id,
-            destination_path=str(path),
-        )
-        # Bound memory even when Canvas metadata is missing or inaccurate.
-        with path.open("rb") as downloaded_file:
-            data = downloaded_file.read(max_bytes + 1)
-
-    if len(data) > max_bytes:
-        raise ValueError(
-            f"File is above the {max_size_mb} MB inline limit. "
-            "Use download_course_file instead."
-        )
 
     uri = f"canvas-file://courses/{quote(course_id)}/files/{quote(file_id)}/{quote(display_name)}"
     return ToolResult(
@@ -172,15 +146,12 @@ def read_course_file(
 
 def list_course_folders(args: dict[str, Any]) -> dict[str, Any]:
     course_id = str(args.get("course_id", "")).strip()
-    if not course_id:
-        return missing_argument("course_id")
 
-    limit = clamp(args.get("limit"), 150)
+    limit = int(args.get("limit", 150))
     folders = canvas_client().list_folders(course_id=course_id, limit=limit)
     items = [
         {
             "id": str(folder.get("id", "")),
-            "id_aliases": id_aliases(str(folder.get("id", ""))),
             "name": folder.get("name", "Untitled folder"),
             "full_name": folder.get("full_name"),
             "parent_folder_id": str(folder["parent_folder_id"])
@@ -197,11 +168,9 @@ def list_course_folders(args: dict[str, Any]) -> dict[str, Any]:
 
 def list_modules(args: dict[str, Any]) -> dict[str, Any]:
     course_id = str(args.get("course_id", "")).strip()
-    if not course_id:
-        return missing_argument("course_id")
 
-    limit = clamp(args.get("limit"), 100)
-    items_limit = clamp(args.get("items_limit"), 100)
+    limit = int(args.get("limit", 100))
+    items_limit = int(args.get("items_limit", 100))
     modules = canvas_client().list_modules(
         course_id=course_id,
         search=str(args.get("search")) if args.get("search") else None,
@@ -238,7 +207,6 @@ def list_modules(args: dict[str, Any]) -> dict[str, Any]:
         items.append(
             {
                 "id": str(module.get("id", "")),
-                "id_aliases": id_aliases(str(module.get("id", ""))),
                 "name": module.get("name", "Untitled module"),
                 "position": module.get("position"),
                 "unlock_at": module.get("unlock_at"),

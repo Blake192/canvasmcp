@@ -38,13 +38,6 @@ class TestDomainFromBaseUrl:
             == "canvas.school.edu"
         )
 
-    def test_default_url(self):
-        from auth.chrome_cookies import _domain_from_base_url
-
-        assert (
-            _domain_from_base_url("https://canvas.instructure.com")
-            == "canvas.instructure.com"
-        )
 
 
 class TestReadChromeCookies:
@@ -65,30 +58,31 @@ class TestReadChromeCookies:
                 "session123",
                 "csrf456",
             )
-        assert chrome.call_args.kwargs["domain_name"] == "umd.instructure.com"
+        assert chrome.call_args.kwargs["domain_name"] == "instructure.com"
 
-    def test_reads_parent_domain_for_specific_canvas_host(self):
+    def test_reads_grandparent_domain_and_prefers_most_specific(self):
         from auth.chrome_cookies import read_chrome_cookies
 
-        def cookie(name: str, value: str, domain: str):
+        def cookie(name, value, domain):
             return type("Cookie", (), {"name": name, "value": value, "domain": domain})()
 
-        cookies = [
-            cookie("canvas_session", "session123", ".instructure.com"),
-            cookie("_csrf_token", "csrf456", ".instructure.com"),
+        grandparent = [
+            cookie("canvas_session", "root", ".example.test"),
+            cookie("_csrf_token", "root-csrf", ".example.test"),
         ]
+        specific = [
+            cookie("canvas_session", "school", ".school.example.test"),
+            cookie("_csrf_token", "school-csrf", ".school.example.test"),
+        ]
+        with mock.patch("auth.chrome_cookies.browser_cookie3.chrome", return_value=grandparent):
+            assert read_chrome_cookies("https://canvas.school.example.test") == ("root", "root-csrf")
         with mock.patch(
-            "auth.chrome_cookies.browser_cookie3.chrome",
-            side_effect=[[], cookies],
-        ) as chrome:
-            assert read_chrome_cookies("https://umd.instructure.com") == (
-                "session123",
-                "csrf456",
+            "auth.chrome_cookies.browser_cookie3.chrome", return_value=grandparent + specific
+        ):
+            assert read_chrome_cookies("https://canvas.school.example.test") == (
+                "school",
+                "school-csrf",
             )
-        assert [call.kwargs["domain_name"] for call in chrome.call_args_list] == [
-            "umd.instructure.com",
-            "instructure.com",
-        ]
 
     def test_detect_canvas_base_url_requires_unique_match(self):
         from auth.chrome_cookies import detect_canvas_base_url
@@ -292,10 +286,11 @@ class TestAuthPriority:
         with (
             mock.patch("auth.resolve_canvas_base_url", return_value="https://umd.instructure.com"),
             mock.patch("auth.read_chrome_session_cookies", return_value=None),
+            mock.patch("auth.errors.list_canvas_cookie_domains", return_value=[]),
         ):
             from auth import CanvasAPIError, ensure_canvas_auth_configured
 
-            with pytest.raises(CanvasAPIError):
+            with pytest.raises(CanvasAPIError, match="No usable Canvas session"):
                 ensure_canvas_auth_configured()
 
     def test_uses_env_base_url_override(self):
@@ -304,7 +299,7 @@ class TestAuthPriority:
             {"CANVAS_BASE_URL": "https://umd.instructure.com"},
             clear=True,
         ):
-            from auth.resolve import resolve_canvas_base_url
+            from auth.session import resolve_canvas_base_url
 
             assert resolve_canvas_base_url() == "https://umd.instructure.com"
 
@@ -312,25 +307,25 @@ class TestAuthPriority:
         with (
             mock.patch.dict(os.environ, {}, clear=True),
             mock.patch(
-                "auth.resolve.detect_canvas_base_url",
+                "auth.session.detect_canvas_base_url",
                 return_value="https://umd.instructure.com",
             ),
         ):
-            from auth.resolve import resolve_canvas_base_url
+            from auth.session import resolve_canvas_base_url
 
             assert resolve_canvas_base_url() == "https://umd.instructure.com"
 
     def test_inference_error_mentions_chrome_before_env_override(self):
         with (
             mock.patch.dict(os.environ, {}, clear=True),
-            mock.patch("auth.resolve.detect_canvas_base_url", return_value=None),
+            mock.patch("auth.session.detect_canvas_base_url", return_value=None),
             mock.patch(
                 "auth.errors.list_canvas_cookie_domains",
                 return_value=["umd.instructure.com", "school.instructure.com"],
             ),
         ):
             from auth.errors import CanvasAPIError
-            from auth.resolve import resolve_canvas_base_url
+            from auth.session import resolve_canvas_base_url
 
             with pytest.raises(CanvasAPIError) as excinfo:
                 resolve_canvas_base_url()
@@ -361,11 +356,12 @@ class TestCreateCanvasClientFromEnv:
         with (
             mock.patch("client.resolve_canvas_base_url", return_value="https://umd.instructure.com"),
             mock.patch("client.read_chrome_session_cookies", return_value=None),
+            mock.patch("auth.errors.list_canvas_cookie_domains", return_value=[]),
         ):
             from auth import CanvasAPIError
             from client import create_canvas_client_from_env
 
-            with pytest.raises(CanvasAPIError):
+            with pytest.raises(CanvasAPIError, match="No usable Canvas session"):
                 create_canvas_client_from_env()
 
 
@@ -380,21 +376,14 @@ class TestGeneratedCli:
         assert result.exit_code == 0
         assert "list_courses" in result.stdout
 
-    def test_main_invokes_app(self):
-        import cli.bootstrap as cli_boot
-
-        with mock.patch.object(cli_boot, "app") as app:
-            cli_boot.main()
-            app.assert_called_once_with()
-
     def test_courses_command_dispatches_expected_args(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.output as cli_mod
 
         runner = CliRunner()
         with (
-            mock.patch.object(cli_boot, "_ensure_auth"),
-            mock.patch.object(cli_boot, "dispatch_tool_call") as dispatch,
+            mock.patch.object(cli_mod, "_ensure_auth"),
+            mock.patch.object(cli_mod, "dispatch_tool_call") as dispatch,
         ):
             dispatch.return_value = {"count": 0, "courses": []}
             result = runner.invoke(cli.app, ["courses", "--all", "--limit", "10"])
@@ -406,12 +395,12 @@ class TestGeneratedCli:
 
     def test_assignment_submission_install_dispatches_expected_args(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.output as cli_mod
 
         runner = CliRunner()
         with (
-            mock.patch.object(cli_boot, "_ensure_auth"),
-            mock.patch.object(cli_boot, "dispatch_tool_call") as dispatch,
+            mock.patch.object(cli_mod, "_ensure_auth"),
+            mock.patch.object(cli_mod, "dispatch_tool_call") as dispatch,
         ):
             dispatch.return_value = {"count": 0, "files": []}
             result = runner.invoke(
@@ -437,44 +426,52 @@ class TestGeneratedCli:
 
     def test_today_does_not_require_auth(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.output as cli_mod
 
         runner = CliRunner()
         with (
-            mock.patch.object(cli_boot, "_ensure_auth") as ensure_auth,
-            mock.patch.object(cli_boot, "dispatch_tool_call") as dispatch,
+            mock.patch.object(cli_mod, "_ensure_auth") as ensure_auth,
+            mock.patch.object(cli_mod, "dispatch_tool_call") as dispatch,
         ):
             dispatch.return_value = {"today": "2026-03-10"}
             result = runner.invoke(cli.app, ["today"])
         assert result.exit_code == 0
         ensure_auth.assert_not_called()
 
-    def test_auth_status_reports_env_override(self):
+    def test_auth_status_reports_verified_session(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.misc as cli_mod
 
-        runner = CliRunner()
-        with mock.patch.object(
-            cli_boot,
-            "get_auth_status",
-            return_value={
-                "auth_mode": "chrome-session",
-                "resolved_canvas_base_url": "https://umd.instructure.com",
-                "auth_status": "verified",
-            },
-        ):
-            result = runner.invoke(cli.app, ["auth-status"])
+        status = {
+            "auth_mode": "chrome-session",
+            "resolved_canvas_base_url": "https://umd.instructure.com",
+            "auth_status": "verified",
+            "auth_verified": True,
+        }
+        with mock.patch.object(cli_mod, "get_auth_status", return_value=status):
+            result = CliRunner().invoke(cli.app, ["--output", "json", "auth-status"])
         assert result.exit_code == 0
-        assert "chrome-session" in result.stdout
-        assert "umd.instructure.com" in result.stdout
+        assert json.loads(result.stdout) == status
+
+    def test_settings_profiles_lists_each_profile_with_its_auth_status(self):
+        import cli
+
+        profiles = [
+            {"name": "terpmail.umd.edu", "auth_status": "verified"},
+            {"name": "Yashas", "auth_status": "not_logged_in"},
+        ]
+        with mock.patch("cli.settings.describe_chrome_profiles", return_value=profiles):
+            result = CliRunner().invoke(cli.app, ["--output", "json", "settings", "profiles"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == {"profiles": profiles}
 
     def test_auth_status_returns_json_error_instead_of_exiting(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.misc as cli_mod
 
         runner = CliRunner()
         with mock.patch.object(
-            cli_boot,
+            cli_mod,
             "get_auth_status",
             return_value={
                 "auth_mode": None,
@@ -489,12 +486,12 @@ class TestGeneratedCli:
 
     def test_auth_status_catches_canvas_api_error_and_returns_json(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.misc as cli_mod
         from auth import CanvasAPIError
 
         runner = CliRunner()
         with mock.patch.object(
-            cli_boot,
+            cli_mod,
             "get_auth_status",
             side_effect=CanvasAPIError("Could not infer a Canvas site from Chrome"),
         ):
@@ -506,7 +503,7 @@ class TestGeneratedCli:
 
     def test_settings_show_reports_saved_profile_and_auth(self):
         import cli
-        import cli.settings as settings_mod
+        import cli.misc as misc_mod
 
         runner = CliRunner()
         with (
@@ -515,7 +512,7 @@ class TestGeneratedCli:
                 return_value={"chrome_profile_name": "terpmail.umd.edu"},
             ),
             mock.patch.object(
-                settings_mod,
+                misc_mod,
                 "get_auth_status",
                 return_value={"auth_status": "verified"},
             ),
@@ -527,7 +524,7 @@ class TestGeneratedCli:
 
     def test_settings_show_catches_canvas_api_error_and_returns_json(self):
         import cli
-        import cli.settings as settings_mod
+        import cli.misc as misc_mod
         from auth import CanvasAPIError
 
         runner = CliRunner()
@@ -537,7 +534,7 @@ class TestGeneratedCli:
                 return_value={"chrome_profile_name": "terpmail.umd.edu"},
             ),
             mock.patch.object(
-                settings_mod,
+                misc_mod,
                 "get_auth_status",
                 side_effect=CanvasAPIError("Could not infer a Canvas site from Chrome"),
             ),
@@ -547,22 +544,6 @@ class TestGeneratedCli:
         assert json.loads(result.stdout)["auth"]["auth_status"] == "error"
         assert "Could not infer a Canvas site from Chrome" in result.stdout
         assert "Traceback" not in result.stdout
-
-    def test_settings_profiles_outputs_profile_statuses(self):
-        import cli
-
-        runner = CliRunner()
-        with mock.patch(
-            "cli.settings.describe_chrome_profiles",
-            return_value=[
-                {"name": "terpmail.umd.edu", "auth_status": "verified"},
-                {"name": "Yashas", "auth_status": "not_logged_in"},
-            ],
-        ):
-            result = runner.invoke(cli.app, ["settings", "profiles"])
-        assert result.exit_code == 0
-        assert "verified" in result.stdout
-        assert "not_logged_in" in result.stdout
 
     def test_settings_choose_profile_headless_accepts_explicit_name(self):
         import cli
@@ -595,12 +576,12 @@ class TestGeneratedCli:
 
     def test_courses_command_renders_clean_auth_error(self):
         import cli
-        import cli.bootstrap as cli_boot
+        import cli.output as cli_mod
         from auth import CanvasAPIError
 
         runner = CliRunner()
         with mock.patch.object(
-            cli_boot,
+            cli_mod,
             "ensure_canvas_auth_configured",
             side_effect=CanvasAPIError("Open Canvas in Chrome and retry"),
         ):
@@ -610,6 +591,29 @@ class TestGeneratedCli:
             "error": "auth_error", "message": "Open Canvas in Chrome and retry"
         }
         assert "Traceback" not in result.stdout
+
+
+class TestCliMainProcess:
+    """Run the real entrypoint, since CliRunner bypasses main()."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [["no-such-command"], ["--output", "json", "tool", "run", "get_today", "--args", "{"]],
+    )
+    def test_usage_errors_exit_2_without_traceback(self, args, tmp_path):
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-c", "from cli import main; main()", *args],
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "HOME": str(tmp_path)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 2, result.stderr
+        assert "Traceback" not in result.stdout + result.stderr
 
 
 class TestMcpServerEntrypoint:

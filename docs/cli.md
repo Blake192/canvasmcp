@@ -15,6 +15,7 @@ See the [README](../README.md) for install, auth, and the usual flow. `canvas --
 | `canvas assignments list ID` | `list_course_assignments` |
 | `canvas assignments show COURSE ASSIGNMENT` | `get_assignment_details` |
 | `canvas assignments rubric COURSE ASSIGNMENT` | `get_assignment_rubric` |
+| `canvas assignments rubric COURSE ASSIGNMENT --peer-reviews` | `get_assignment_rubric` with peer rubric responses from your submission |
 | `canvas assignments groups ID` | `list_assignment_groups` |
 | `canvas course submissions ID` | `list_course_submissions` |
 | `canvas assignments submissions install COURSE ASSIGNMENT` | `install_assignment_submission_files` |
@@ -31,8 +32,6 @@ See the [README](../README.md) for install, auth, and the usual flow. `canvas --
 | `canvas course page COURSE SLUG_OR_ID` | `canvas_get_page` |
 | `canvas course tabs ID` | `list_course_tabs` |
 | `canvas course tab COURSE TAB` | `get_course_tab` |
-| `canvas quizzes list ID` | `list_course_quizzes` |
-| `canvas quizzes results COURSE QUIZ [--attempt N]` | `get_quiz_results` |
 | `canvas files list ID` | `list_course_files` |
 | `canvas files download COURSE FILE` | `download_course_file` |
 | `canvas files folders ID` | `list_course_folders` |
@@ -40,12 +39,7 @@ See the [README](../README.md) for install, auth, and the usual flow. `canvas --
 | `canvas todo` | `list_todo_items` |
 | `canvas inbox list` | `list_inbox_conversations` |
 | `canvas inbox show CONVERSATION` | `get_inbox_conversation` |
-| `canvas planner items [--start DATE] [--end DATE] [--incomplete]` | `list_planner_items` |
-| `canvas planner add TITLE [--date DATE] [--details TEXT] [--course ID]` | `create_todo_note` |
-| `canvas planner edit NOTE [--title TEXT] [--date DATE] [--details TEXT] [--course ID]` | `update_todo_note` |
-| `canvas planner delete NOTE` | `delete_todo_note` |
-| `canvas planner done TYPE ID [--undo]` | `set_todo_item_state` |
 | `canvas course people ID` | `list_course_people` |
 | `canvas url URL` | `resolve_canvas_url` |
 
-Inbox commands are read-only and never mark a conversation as read. The quiz commands are read-only: they never open, start, or resume an attempt, and `results` only reads finished attempts. The planner commands only change your own To Do list: personal notes and the done or dismissed state of items. They never submit anything. `canvas_get_page` is wiki pages only. Use `canvas url` when the link type is unknown. Non-self submission queries need extra Canvas permissions.
+Inbox commands are read-only and never mark a conversation as read. `canvas_get_page` is wiki pages only. Use `canvas url` when the link type is unknown. Non-self submission queries need extra Canvas permissions.

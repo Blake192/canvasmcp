@@ -1,6 +1,6 @@
 ---
 name: canvas-cli
-description: Use the local `canvas` CLI for Canvas LMS workflows. Trigger when you need to find a course, inspect modules/assignments/discussions/files/pages/people/grades/rubrics/quizzes/inbox messages, manage the To Do list, submit or schedule an assignment, or verify Canvas session status from the terminal.
+description: Use the local `canvas` CLI for Canvas LMS workflows. Trigger when you need to find a course, inspect modules/assignments/discussions/files/pages/people/grades/rubrics/inbox messages, submit or schedule an assignment, or verify Canvas session status from the terminal.
 ---
 
 # Canvas CLI Agent Instructions
@@ -106,12 +106,16 @@ Best practice:
 ```bash
 canvas assignments rubric <course_id> <assignment_id>
 canvas assignments rubric <course_id> <assignment_id> --include-assessment
+canvas assignments rubric <course_id> <assignment_id> --peer-reviews
 ```
 
 Best practice:
 
 - Use `assignments rubric` when the user asks for grading criteria, rubric categories, points, or how an assignment will be evaluated.
 - Use `--include-assessment` only when the user asks how they were graded or wants rubric feedback for their own submission.
+- Use `--peer-reviews` for completed peer rubric responses when `rubric_assessment` is null; this reads the authenticated submission page without opening a browser tab.
+- `--peer-reviews` returns `peer_rubric_assessments` (reviewer, criteria, points, comments) plus `peer_assessment_source` and `peer_assessment_error`. Anonymous peer reviews come back as `Reviewer N`.
+- It only covers rubric-based peer reviews. An empty list with no error means none were found. Workshops where peers upload worksheets (often assignments with `has_rubric: false`) deliver feedback as `submission_comments` attachments instead. Fetch those with `canvas course submissions <course_id> --assignment <assignment_id> --student-id self` and read the attachment URLs.
 - Report rubric title, total points, criteria names, point values, and rating levels.
 - Do not assume `use_rubric_for_grading=true`; report its value if relevant.
 - If the assignment has no rubric, say so and suggest checking assignment details/comments instead.
@@ -170,38 +174,6 @@ Best practice:
 - Use `student-id self` for the current user.
 - Non-self submission queries may fail because of Canvas permissions; report permission limits clearly.
 - For feedback questions, inspect submissions for `submission_comments`, `rubric_assessment`, `attachments`, `score`, `grade`, `late`, and `missing`.
-
-## Quizzes
-
-```bash
-canvas quizzes list <course_id>
-canvas quizzes results <course_id> <quiz_id>
-canvas quizzes results <course_id> <quiz_id> --attempt 2
-```
-
-Both are read-only and never open, start, or resume an attempt. Starting a quiz starts its timer, so never try
-to open or take one from the CLI.
-
-- `list` shows each quiz's time limit, attempts allowed and left, unlock, due, and lock dates, lockdown or access-code
-  requirements, your score, and the quiz instructions. New Quizzes show dates, points, and score only.
-- `results` reads one finished attempt: each question, your answer, whether it was right, points, and the correct
-  answer when the quiz shows it. It reads nothing while an attempt is in progress.
-
-## To Do List
-
-```bash
-canvas planner items --start 2026-10-01 --end 2026-10-31 --incomplete
-canvas planner add "Read chapter 3" --date 2026-10-12 --course <course_id>
-canvas planner edit <note_id> --date 2026-10-14
-canvas planner delete <note_id>
-canvas planner done assignment <assignment_id>
-canvas planner done assignment <assignment_id> --undo
-```
-
-- `items` lists the To Do list with each item's `plannable_type`, `plannable_id`, and done or dismissed state.
-- `add`, `edit`, and `delete` manage personal to-do notes, which only you can see.
-- `done` marks any item done or not done, like the Canvas checkbox. It never submits anything.
-- These change Canvas, so confirm with the user before running them.
 
 ## Course Structure
 

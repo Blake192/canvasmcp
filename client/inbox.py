@@ -5,8 +5,7 @@ from typing import Any
 from canvasapi import Canvas
 from canvasapi.util import combine_kwargs
 
-from .base import MAX_PER_PAGE
-from .content import _CanvasDictItem
+from .base import MAX_PER_PAGE, _CanvasDictItem
 
 
 class CanvasInboxMixin:
@@ -35,7 +34,7 @@ class CanvasInboxMixin:
                 endpoint="conversations",
                 params=params,
             )
-            return self._paginate_list(conversations, limit=limit)
+            return self._take_limit(conversations, limit=limit)
 
         return self._call_canvas(_load, "list inbox conversations")
 

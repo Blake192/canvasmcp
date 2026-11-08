@@ -13,7 +13,7 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-from cli import app, bootstrap
+from cli import app, output as cli_output
 from cli.output import _Pretty, _render
 
 
@@ -24,8 +24,8 @@ def clean_environment(monkeypatch):
 
 
 def invoke_result(monkeypatch, result, args, env=None):
-    monkeypatch.setattr(bootstrap, "_ensure_auth", lambda: None)
-    monkeypatch.setattr(bootstrap, "dispatch_tool_call", lambda *_: result)
+    monkeypatch.setattr(cli_output, "_ensure_auth", lambda: None)
+    monkeypatch.setattr(cli_output, "dispatch_tool_call", lambda *_: result)
     return CliRunner().invoke(app, args, env=env)
 
 
@@ -50,17 +50,17 @@ def test_json_preserves_payload_and_is_compact(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "args",
+    ("args", "code"),
     [
-        ["tool", "run", "get_today", "--args", "[1]"],
-        ["tool", "run", "get_today", "--args", "{"],
-        ["tool", "run", "nonexistent"],
+        (["tool", "run", "get_today", "--args", "[1]"], "invalid_json"),
+        (["tool", "run", "get_today", "--args", "{"], "invalid_json"),
+        (["tool", "run", "nonexistent"], "unknown_tool"),
     ],
 )
-def test_json_tool_usage_errors(args):
+def test_json_tool_usage_errors(args, code):
     result = CliRunner().invoke(app, ["--output", "json", *args])
     assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]
+    assert json.loads(result.stdout)["error"] == code
     assert result.stderr == ""
 
 
@@ -327,3 +327,9 @@ def test_long_filename_list_is_copyable():
         "get_scheduled_submission",
     )
     assert filename in [line.strip() for line in text.splitlines()]
+
+
+def test_cancel_shows_file_cleanup_once():
+    job = {"id": "j1", "status": "cancelled", "file_cleanup": [{"file_id": "99", "deleted": True}]}
+    out = render({"ok": True, "job": job, "file_cleanup": job["file_cleanup"]}, "cancel_scheduled_submission", width=100)
+    assert out.lower().count("file cleanup") == 1

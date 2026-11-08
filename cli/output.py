@@ -14,6 +14,9 @@ import click
 import typer
 from rich.console import Console
 
+from auth import CanvasAPIError, ensure_canvas_auth_configured
+from specs.registry import dispatch_tool_call
+
 
 class OutputMode(str, Enum):
     auto = "auto"
@@ -26,9 +29,6 @@ FIELD_ORDER = {
     "courses": "id name course_code term_name state",
     "matches": "id name course_code score term_name state",
     "assignments": "id name due_at points_possible submission",
-    "quizzes": "kind quiz_id title type due_at time_limit_minutes allowed_attempts your_status",
-    "questions": "position type question your_answer result points correct_answers",
-    "items": "plannable_type plannable_id title date context_name done dismissed submitted",
     "assignment": "id name due_at lock_at points_possible submission description rubric",
     "jobs": "id status assignment_name course_id assignment_id submit_at filenames error",
     "files": "id display_name filename local_path path size error",
@@ -52,9 +52,6 @@ FIELD_ORDER = {
     "auth": "auth_verified auth_status error selected_chrome_profile resolved_canvas_base_url auth_mode",
 }
 SECONDARY = {
-    "id_aliases",
-    "assignment_id_aliases",
-    "discussion_topic_id_aliases",
     "avatar_image_url",
     "items_url",
     "plist_label",
@@ -395,7 +392,7 @@ def _submission(view: _Pretty, result: dict[str, Any], tool_name: str) -> None:
             f"canvas assignments submissions status {shlex.quote(str(job_id))}",
             exact=True,
         )
-    if cleanup:
+    if cleanup and "file_cleanup" not in (result.get("job") or {}):  # job view already shows it
         view.collection("file_cleanup", cleanup, full=True)
 
 
@@ -470,3 +467,19 @@ def emit(
 
 def fail(code: str, message: str, *, exit_code: int = 1, **details: Any) -> None:
     emit({"error": code, "message": message, **details}, exit_code=exit_code)
+
+
+def _ensure_auth() -> None:
+    try:
+        ensure_canvas_auth_configured()
+    except CanvasAPIError as exc:
+        fail("auth_error", str(exc))
+
+
+def invoke(tool_name: str, args: dict[str, Any] | None = None) -> None:
+    if tool_name != "get_today":
+        _ensure_auth()
+    try:
+        emit(dispatch_tool_call(tool_name, args or {}), tool_name=tool_name)
+    except CanvasAPIError as exc:
+        fail("canvas_api_error", str(exc))
