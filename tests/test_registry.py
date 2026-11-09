@@ -111,6 +111,7 @@ REQUIRED_ARGUMENTS = {
     "update_todo_note": ["note_id"],
     "delete_todo_note": ["note_id"],
     "set_todo_item_state": ["plannable_id", "plannable_type"],
+    "get_new_quiz_results": ["assignment_id", "course_id"],
 }
 
 
